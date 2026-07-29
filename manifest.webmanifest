@@ -1,0 +1,20 @@
+{
+  "name": "SciFit",
+  "short_name": "SciFit",
+  "description": "Science based lifting, nutrition, and AI coaching.",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "background_color": "#0d120c",
+  "theme_color": "#12170f",
+  "orientation": "portrait",
+  "categories": ["health", "fitness", "sports"],
+  "icons": [
+    {
+      "src": "favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
