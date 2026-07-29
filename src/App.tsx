@@ -33,10 +33,11 @@ import {
   getReadiness,
   getTopLift,
   getWeeklyVolume,
+  normalizeProfile,
   starterMeals,
   starterWorkouts
 } from './lib/science';
-import type { Citation, DietStyle, Experience, Goal, MealLog, Profile, UploadAsset, WorkoutSet } from './lib/science';
+import type { Citation, DietStyle, Equipment, Experience, Goal, MealLog, Profile, Sex, UploadAsset, WorkoutSet } from './lib/science';
 import {
   answerWithRag,
   createManualSource,
@@ -54,6 +55,21 @@ type AssistantMessage = {
   role: 'user' | 'assistant';
   content: string;
   citations: Citation[];
+};
+
+type MediaPayload = {
+  kind: 'image' | 'video';
+  name: string;
+  mimeType?: string;
+  remotePath?: string;
+  dataUrl?: string;
+};
+
+type AiResponse = {
+  answer?: string;
+  citations?: Citation[];
+  plan?: unknown;
+  error?: string;
 };
 
 type SourceRow = {
@@ -81,9 +97,9 @@ const tabs: Array<{ id: Tab; label: string; icon: LucideIcon }> = [
 ];
 
 const quickPrompts = [
-  'Build my split around hypertrophy and recovery.',
-  'What should my calories and protein be today?',
-  'Review my latest upload for form or meal feedback.'
+  'Create my plan from my profile.',
+  'Adjust my calories and protein.',
+  'Analyze my latest upload.'
 ];
 
 const defaultSourceQuery = starterEvidenceQueries[0].query;
@@ -160,6 +176,34 @@ function rowToSource(row: SourceRow): ResearchSource {
   };
 }
 
+async function uploadToMediaPayload(upload: UploadAsset): Promise<MediaPayload> {
+  const basePayload: MediaPayload = {
+    kind: upload.kind,
+    name: upload.name,
+    mimeType: upload.mimeType,
+    remotePath: upload.remotePath
+  };
+
+  if (upload.remotePath) {
+    return basePayload;
+  }
+
+  const response = await fetch(upload.url);
+  const blob = await response.blob();
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ''));
+    reader.onerror = () => reject(reader.error ?? new Error('Media conversion failed'));
+    reader.readAsDataURL(blob);
+  });
+
+  return {
+    ...basePayload,
+    mimeType: upload.mimeType || blob.type,
+    dataUrl
+  };
+}
+
 function useStoredState<T>(key: string, initialValue: T) {
   const [value, setValue] = useState<T>(() => {
     const saved = localStorage.getItem(key);
@@ -200,7 +244,7 @@ function App() {
     abstract: '',
     source: '',
     url: '',
-    tags: 'hypertrophy'
+    tags: ''
   });
   const [messages, setMessages] = useStoredState<AssistantMessage[]>('scifit-messages-v2', [
     {
@@ -227,9 +271,10 @@ function App() {
     fat: ''
   });
 
-  const split = useMemo(() => generateSplit(profile), [profile]);
-  const nutrition = useMemo(() => getNutritionTargets(profile), [profile]);
-  const readiness = useMemo(() => getReadiness(profile, workouts), [profile, workouts]);
+  const athlete = useMemo(() => normalizeProfile(profile), [profile]);
+  const split = useMemo(() => generateSplit(athlete), [athlete]);
+  const nutrition = useMemo(() => getNutritionTargets(athlete), [athlete]);
+  const readiness = useMemo(() => getReadiness(athlete, workouts), [athlete, workouts]);
   const weeklyVolume = useMemo(() => getWeeklyVolume(workouts), [workouts]);
   const topLift = useMemo(() => getTopLift(workouts), [workouts]);
   const proteinLogged = meals.reduce((sum, meal) => sum + meal.protein, 0);
@@ -285,15 +330,21 @@ function App() {
 
     const { error } = await supabase.from('profiles').upsert({
       id: session.user.id,
-      name: profile.name,
-      goal: profile.goal,
-      experience: profile.experience,
-      diet_style: profile.dietStyle,
-      training_days: profile.trainingDays,
-      height_cm: profile.heightCm,
-      weight_kg: profile.weightKg,
-      sleep_hours: profile.sleepHours,
-      soreness: profile.soreness,
+      name: athlete.name,
+      goal: athlete.goal,
+      goal_detail: athlete.goalDetail,
+      experience: athlete.experience,
+      diet_style: athlete.dietStyle,
+      equipment: athlete.equipment,
+      focus_areas: athlete.focusAreas,
+      limitations: athlete.limitations,
+      age: athlete.age,
+      sex: athlete.sex,
+      training_days: athlete.trainingDays,
+      height_cm: athlete.heightCm,
+      weight_kg: athlete.weightKg,
+      sleep_hours: athlete.sleepHours,
+      soreness: athlete.soreness,
       updated_at: new Date().toISOString()
     });
 
@@ -304,7 +355,7 @@ function App() {
 
   async function persistResearchSources(items: ResearchSource[]) {
     if (!supabase || !session || !items.length) {
-      return;
+      return false;
     }
 
     const { error } = await supabase
@@ -313,7 +364,19 @@ function App() {
 
     if (error) {
       setToast(error.message);
+      return false;
     }
+
+    const { error: ingestError } = await supabase.functions.invoke('ingest-source', {
+      body: { sources: items }
+    });
+
+    if (ingestError) {
+      setToast(`Sources saved; vector sync needs function deploy (${ingestError.message})`);
+      return false;
+    }
+
+    return true;
   }
 
   async function handleImportSources() {
@@ -326,8 +389,8 @@ function App() {
     try {
       const imported = await fetchEuropePmcSources(query, 'Imported', 10);
       setSources((current) => mergeSources(current, imported));
-      await persistResearchSources(imported);
-      setToast(imported.length ? `Imported ${imported.length} sources` : 'No sources with abstracts found');
+      const vectorSynced = await persistResearchSources(imported);
+      setToast(imported.length ? `Imported ${imported.length} sources${vectorSynced ? ' and embedded vectors' : ''}` : 'No sources with abstracts found');
     } catch (error) {
       setToast(error instanceof Error ? error.message : 'Source import failed');
     } finally {
@@ -347,8 +410,8 @@ function App() {
       );
       const imported = batches.flat();
       setSources((current) => mergeSources(current, imported));
-      await persistResearchSources(imported);
-      setToast(`Loaded ${imported.length} research sources`);
+      const vectorSynced = await persistResearchSources(imported);
+      setToast(`Loaded ${imported.length} research sources${vectorSynced ? ' and embedded vectors' : ''}`);
     } catch (error) {
       setToast(error instanceof Error ? error.message : 'Starter evidence failed');
     } finally {
@@ -365,9 +428,9 @@ function App() {
 
     const next = createManualSource(manualSource);
     setSources((current) => mergeSources(current, [next]));
-    await persistResearchSources([next]);
-    setManualSource({ title: '', abstract: '', source: '', url: '', tags: 'hypertrophy' });
-    setToast('Source added');
+    const vectorSynced = await persistResearchSources([next]);
+    setManualSource({ title: '', abstract: '', source: '', url: '', tags: '' });
+    setToast(`Source added${vectorSynced ? ' and embedded' : ''}`);
   }
 
   async function handleRemoveSource(source: ResearchSource) {
@@ -519,10 +582,11 @@ function App() {
         name: file.name,
         kind,
         size: file.size,
+        mimeType: file.type || undefined,
         url: previewUrl,
         remotePath,
         status,
-        note: kind === 'video' ? 'Form analysis queue' : 'Meal or physique analysis queue',
+        note: kind === 'video' ? 'Ready for AI form review' : 'Ready for AI visual review',
         createdAt: new Date().toISOString()
       };
 
@@ -535,6 +599,7 @@ function App() {
           user_id: session.user.id,
           file_name: next.name,
           file_kind: next.kind,
+          mime_type: next.mimeType,
           storage_path: remotePath,
           note: next.note,
           created_at: next.createdAt
@@ -564,37 +629,32 @@ function App() {
     setCoachLoading(true);
 
     try {
-      const ragEndpoint = import.meta.env.VITE_RAG_ENDPOINT?.trim() ?? '';
-      const ragKey = import.meta.env.VITE_RAG_API_KEY?.trim() ?? '';
-      if (ragEndpoint) {
-        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-        if (ragKey) {
-          headers.apikey = ragKey;
-          headers.Authorization = `Bearer ${ragKey}`;
-        }
-
-        const response = await fetch(ragEndpoint, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({ user_message: prompt, user_profile: profile, top_k: 5 })
+      if (supabase && session) {
+        const media = uploads[0] ? await uploadToMediaPayload(uploads[0]) : null;
+        const { data, error } = await supabase.functions.invoke<AiResponse>('rag-chat', {
+          body: {
+            message: prompt,
+            profile: athlete,
+            media
+          }
         });
 
-        if (!response.ok) {
-          throw new Error(`RAG request failed: ${response.status}`);
+        if (error || data?.error) {
+          throw new Error(error?.message ?? data?.error ?? 'AI function failed');
         }
+        const payload = data ?? {};
 
-        const data = (await response.json()) as { answer?: string; citations?: Citation[] };
         setMessages((current) => [
           ...current,
           {
             id: uid('msg-assistant'),
             role: 'assistant',
-            content: data.answer ?? 'No answer returned.',
-            citations: Array.isArray(data.citations) ? data.citations : []
+            content: payload.answer ?? 'No answer returned.',
+            citations: Array.isArray(payload.citations) ? payload.citations : []
           }
         ]);
       } else {
-        const result = answerWithRag(prompt, profile, uploads, sources);
+        const result = answerWithRag(prompt, athlete, uploads, sources);
         setMessages((current) => [
           ...current,
           {
@@ -606,7 +666,7 @@ function App() {
         ]);
       }
     } catch (error) {
-      const result = answerWithRag(prompt, profile, uploads, sources);
+      const result = answerWithRag(prompt, athlete, uploads, sources);
       setMessages((current) => [
         ...current,
         {
@@ -649,7 +709,7 @@ function App() {
           >
             {activeTab === 'today' ? (
               <TodayView
-                profile={profile}
+                profile={athlete}
                 readiness={readiness}
                 weeklyVolume={weeklyVolume}
                 topLift={topLift}
@@ -663,7 +723,16 @@ function App() {
               />
             ) : null}
 
-            {activeTab === 'plan' ? <PlanView profile={profile} split={split} nutrition={nutrition} sources={sources} /> : null}
+            {activeTab === 'plan' ? (
+              <PlanView
+                profile={athlete}
+                split={split}
+                nutrition={nutrition}
+                sources={sources}
+                updateProfile={updateProfile}
+                onSaveProfile={handleSaveProfile}
+              />
+            ) : null}
 
             {activeTab === 'log' ? (
               <LogView
@@ -684,32 +753,32 @@ function App() {
                 messages={messages}
                 coachPrompt={coachPrompt}
                 coachLoading={coachLoading}
-                sources={sources}
-                sourceQuery={sourceQuery}
-                sourceLoading={sourceLoading}
-                manualSource={manualSource}
                 setCoachPrompt={setCoachPrompt}
-                setSourceQuery={setSourceQuery}
-                setManualSource={setManualSource}
                 onMediaChange={handleMediaChange}
                 onCoachSubmit={handleCoachSubmit}
-                onImportSources={handleImportSources}
-                onLoadStarterEvidence={handleLoadStarterEvidence}
-                onManualSourceSubmit={handleManualSourceSubmit}
-                onRemoveSource={handleRemoveSource}
               />
             ) : null}
 
             {activeTab === 'profile' ? (
               <ProfileView
-                profile={profile}
+                profile={athlete}
                 updateProfile={updateProfile}
                 authEmail={authEmail}
                 setAuthEmail={setAuthEmail}
                 session={session}
+                sources={sources}
+                sourceQuery={sourceQuery}
+                sourceLoading={sourceLoading}
+                manualSource={manualSource}
+                setSourceQuery={setSourceQuery}
+                setManualSource={setManualSource}
                 onSaveProfile={handleSaveProfile}
                 onMagicLink={handleMagicLink}
                 onSignOut={handleSignOut}
+                onImportSources={handleImportSources}
+                onLoadStarterEvidence={handleLoadStarterEvidence}
+                onManualSourceSubmit={handleManualSourceSubmit}
+                onRemoveSource={handleRemoveSource}
               />
             ) : null}
           </motion.section>
@@ -897,19 +966,60 @@ function PlanView({
   profile,
   split,
   nutrition,
-  sources
+  sources,
+  updateProfile,
+  onSaveProfile
 }: {
   profile: Profile;
   split: ReturnType<typeof generateSplit>;
   nutrition: ReturnType<typeof getNutritionTargets>;
   sources: ResearchSource[];
+  updateProfile: <K extends keyof Profile>(key: K, value: Profile[K]) => void;
+  onSaveProfile: (event: FormEvent<HTMLFormElement>) => void;
 }) {
   return (
     <>
       <section className="page-title">
-        <span className="eyebrow">Plan Generator</span>
-        <h1>{profile.trainingDays} days for {profile.goal.toLowerCase()}</h1>
+        <span className="eyebrow">Plan Builder</span>
+        <h1>{profile.goal}</h1>
       </section>
+
+      <Section title="Goal Intake" icon={ClipboardList}>
+        <form className="form-grid" onSubmit={onSaveProfile}>
+          <SelectField
+            label="Primary goal"
+            value={profile.goal}
+            options={['Lean bulk', 'Fat loss', 'Strength', 'Hypertrophy', 'Recomposition']}
+            onChange={(value) => updateProfile('goal', value as Goal)}
+          />
+          <SelectField
+            label="Experience"
+            value={profile.experience}
+            options={['Beginner', 'Intermediate', 'Advanced']}
+            onChange={(value) => updateProfile('experience', value as Experience)}
+          />
+          <SelectField
+            label="Equipment"
+            value={profile.equipment}
+            options={['Full gym', 'Home gym', 'Dumbbells', 'Bodyweight']}
+            onChange={(value) => updateProfile('equipment', value as Equipment)}
+          />
+          <SelectField
+            label="Diet style"
+            value={profile.dietStyle}
+            options={['Balanced', 'High protein', 'Plant forward', 'Low appetite']}
+            onChange={(value) => updateProfile('dietStyle', value as DietStyle)}
+          />
+          <RangeField label="Training days" value={profile.trainingDays} min={3} max={6} onChange={(value) => updateProfile('trainingDays', value)} />
+          <Field label="Goal details" value={profile.goalDetail} onChange={(value) => updateProfile('goalDetail', value)} />
+          <Field label="Focus areas" value={profile.focusAreas} onChange={(value) => updateProfile('focusAreas', value)} />
+          <Field label="Limitations" value={profile.limitations} onChange={(value) => updateProfile('limitations', value)} />
+          <button className="primary-action full-width" type="submit">
+            <Check size={17} />
+            Save and rebuild
+          </button>
+        </form>
+      </Section>
 
       <Section title="Training Split" icon={Dumbbell}>
         <div className="split-list">
@@ -998,6 +1108,81 @@ function SourceCard({ source, onRemoveSource }: { source: ResearchSource; onRemo
   );
 }
 
+function ResearchLibrary({
+  sources,
+  sourceQuery,
+  sourceLoading,
+  manualSource,
+  setSourceQuery,
+  setManualSource,
+  onImportSources,
+  onLoadStarterEvidence,
+  onManualSourceSubmit,
+  onRemoveSource
+}: {
+  sources: ResearchSource[];
+  sourceQuery: string;
+  sourceLoading: boolean;
+  manualSource: { title: string; abstract: string; source: string; url: string; tags: string };
+  setSourceQuery: (value: string) => void;
+  setManualSource: React.Dispatch<React.SetStateAction<{ title: string; abstract: string; source: string; url: string; tags: string }>>;
+  onImportSources: () => void;
+  onLoadStarterEvidence: () => void;
+  onManualSourceSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onRemoveSource: (source: ResearchSource) => void;
+}) {
+  return (
+    <Section title="Research Library" icon={BookOpen} action={<span className="source-count">{sources.length} embedded</span>}>
+      <div className="source-tools">
+        <button className="text-button source-wide-button" type="button" onClick={onLoadStarterEvidence} disabled={sourceLoading}>
+          <RefreshCw size={15} />
+          {sourceLoading ? 'Syncing evidence' : 'Sync starter evidence'}
+        </button>
+
+        <div className="source-query-row">
+          <label className="field">
+            <span>Europe PMC query</span>
+            <input value={sourceQuery} onChange={(event) => setSourceQuery(event.target.value)} />
+          </label>
+          <button className="icon-button source-search-button" type="button" onClick={onImportSources} disabled={sourceLoading} aria-label="Search Europe PMC">
+            <Search size={16} />
+          </button>
+        </div>
+
+        <form className="manual-source-form" onSubmit={onManualSourceSubmit}>
+          <Field label="Title" value={manualSource.title} onChange={(value) => setManualSource((draft) => ({ ...draft, title: value }))} />
+          <Field label="Source" value={manualSource.source} onChange={(value) => setManualSource((draft) => ({ ...draft, source: value }))} />
+          <Field label="URL" value={manualSource.url} onChange={(value) => setManualSource((draft) => ({ ...draft, url: value }))} />
+          <Field label="Tags" value={manualSource.tags} onChange={(value) => setManualSource((draft) => ({ ...draft, tags: value }))} />
+          <label className="field full-width">
+            <span>Abstract or notes</span>
+            <textarea
+              className="textarea-field"
+              value={manualSource.abstract}
+              onChange={(event) => setManualSource((draft) => ({ ...draft, abstract: event.target.value }))}
+              rows={4}
+            />
+          </label>
+          <button className="primary-action full-width" type="submit">
+            <Plus size={17} />
+            Add and embed source
+          </button>
+        </form>
+      </div>
+
+      {sources.length ? (
+        <div className="source-list">
+          {sources.slice(0, 4).map((source) => (
+            <SourceCard key={source.externalId} source={source} onRemoveSource={onRemoveSource} />
+          ))}
+        </div>
+      ) : (
+        <div className="empty-state">No research sources embedded yet.</div>
+      )}
+    </Section>
+  );
+}
+
 function LogView({
   workoutDraft,
   setWorkoutDraft,
@@ -1026,12 +1211,12 @@ function LogView({
 
       <Section title="Workout" icon={Dumbbell}>
         <form className="form-grid" onSubmit={onWorkoutSubmit}>
-          <Field label="Exercise" value={workoutDraft.exercise} onChange={(value) => setWorkoutDraft((draft) => ({ ...draft, exercise: value }))} placeholder="Incline press" />
-          <Field label="Muscle" value={workoutDraft.muscle} onChange={(value) => setWorkoutDraft((draft) => ({ ...draft, muscle: value }))} placeholder="Chest" />
-          <Field label="Sets" value={workoutDraft.sets} onChange={(value) => setWorkoutDraft((draft) => ({ ...draft, sets: value }))} inputMode="numeric" placeholder="3" />
-          <Field label="Reps" value={workoutDraft.reps} onChange={(value) => setWorkoutDraft((draft) => ({ ...draft, reps: value }))} inputMode="numeric" placeholder="10" />
-          <Field label="Load" value={workoutDraft.load} onChange={(value) => setWorkoutDraft((draft) => ({ ...draft, load: value }))} inputMode="decimal" placeholder="60" />
-          <Field label="RPE" value={workoutDraft.rpe} onChange={(value) => setWorkoutDraft((draft) => ({ ...draft, rpe: value }))} inputMode="decimal" placeholder="8" />
+          <Field label="Exercise" value={workoutDraft.exercise} onChange={(value) => setWorkoutDraft((draft) => ({ ...draft, exercise: value }))} />
+          <Field label="Muscle" value={workoutDraft.muscle} onChange={(value) => setWorkoutDraft((draft) => ({ ...draft, muscle: value }))} />
+          <Field label="Sets" value={workoutDraft.sets} onChange={(value) => setWorkoutDraft((draft) => ({ ...draft, sets: value }))} inputMode="numeric" />
+          <Field label="Reps" value={workoutDraft.reps} onChange={(value) => setWorkoutDraft((draft) => ({ ...draft, reps: value }))} inputMode="numeric" />
+          <Field label="Load" value={workoutDraft.load} onChange={(value) => setWorkoutDraft((draft) => ({ ...draft, load: value }))} inputMode="decimal" />
+          <Field label="RPE" value={workoutDraft.rpe} onChange={(value) => setWorkoutDraft((draft) => ({ ...draft, rpe: value }))} inputMode="decimal" />
           <button className="primary-action full-width" type="submit">
             <Plus size={17} />
             Add set
@@ -1041,11 +1226,11 @@ function LogView({
 
       <Section title="Nutrition" icon={Utensils}>
         <form className="form-grid" onSubmit={onMealSubmit}>
-          <Field label="Meal" value={mealDraft.meal} onChange={(value) => setMealDraft((draft) => ({ ...draft, meal: value }))} placeholder="Greek yogurt bowl" />
-          <Field label="Calories" value={mealDraft.calories} onChange={(value) => setMealDraft((draft) => ({ ...draft, calories: value }))} inputMode="numeric" placeholder="430" />
-          <Field label="Protein" value={mealDraft.protein} onChange={(value) => setMealDraft((draft) => ({ ...draft, protein: value }))} inputMode="numeric" placeholder="42" />
-          <Field label="Carbs" value={mealDraft.carbs} onChange={(value) => setMealDraft((draft) => ({ ...draft, carbs: value }))} inputMode="numeric" placeholder="48" />
-          <Field label="Fat" value={mealDraft.fat} onChange={(value) => setMealDraft((draft) => ({ ...draft, fat: value }))} inputMode="numeric" placeholder="9" />
+          <Field label="Meal" value={mealDraft.meal} onChange={(value) => setMealDraft((draft) => ({ ...draft, meal: value }))} />
+          <Field label="Calories" value={mealDraft.calories} onChange={(value) => setMealDraft((draft) => ({ ...draft, calories: value }))} inputMode="numeric" />
+          <Field label="Protein" value={mealDraft.protein} onChange={(value) => setMealDraft((draft) => ({ ...draft, protein: value }))} inputMode="numeric" />
+          <Field label="Carbs" value={mealDraft.carbs} onChange={(value) => setMealDraft((draft) => ({ ...draft, carbs: value }))} inputMode="numeric" />
+          <Field label="Fat" value={mealDraft.fat} onChange={(value) => setMealDraft((draft) => ({ ...draft, fat: value }))} inputMode="numeric" />
           <button className="primary-action full-width" type="submit">
             <Plus size={17} />
             Add meal
@@ -1090,43 +1275,23 @@ function CoachView({
   messages,
   coachPrompt,
   coachLoading,
-  sources,
-  sourceQuery,
-  sourceLoading,
-  manualSource,
   setCoachPrompt,
-  setSourceQuery,
-  setManualSource,
   onMediaChange,
-  onCoachSubmit,
-  onImportSources,
-  onLoadStarterEvidence,
-  onManualSourceSubmit,
-  onRemoveSource
+  onCoachSubmit
 }: {
   uploads: UploadAsset[];
   messages: AssistantMessage[];
   coachPrompt: string;
   coachLoading: boolean;
-  sources: ResearchSource[];
-  sourceQuery: string;
-  sourceLoading: boolean;
-  manualSource: { title: string; abstract: string; source: string; url: string; tags: string };
   setCoachPrompt: (value: string) => void;
-  setSourceQuery: (value: string) => void;
-  setManualSource: React.Dispatch<React.SetStateAction<{ title: string; abstract: string; source: string; url: string; tags: string }>>;
   onMediaChange: (event: ChangeEvent<HTMLInputElement>) => void;
   onCoachSubmit: (event: FormEvent<HTMLFormElement>) => void;
-  onImportSources: () => void;
-  onLoadStarterEvidence: () => void;
-  onManualSourceSubmit: (event: FormEvent<HTMLFormElement>) => void;
-  onRemoveSource: (source: ResearchSource) => void;
 }) {
   return (
     <>
       <section className="page-title">
         <span className="eyebrow">AI Coach</span>
-        <h1>Evidence and media</h1>
+        <h1>Ask, upload, adjust</h1>
       </section>
 
       <Section title="Uploads" icon={Upload}>
@@ -1146,56 +1311,6 @@ function CoachView({
             ))}
           </div>
         ) : null}
-      </Section>
-
-      <Section title="Source Library" icon={BookOpen} action={<span className="source-count">{sources.length} sources</span>}>
-        <div className="source-tools">
-          <button className="text-button source-wide-button" type="button" onClick={onLoadStarterEvidence} disabled={sourceLoading}>
-            <RefreshCw size={15} />
-            {sourceLoading ? 'Loading' : 'Load starter evidence'}
-          </button>
-
-          <div className="source-query-row">
-            <label className="field">
-              <span>Europe PMC query</span>
-              <input value={sourceQuery} onChange={(event) => setSourceQuery(event.target.value)} />
-            </label>
-            <button className="icon-button source-search-button" type="button" onClick={onImportSources} disabled={sourceLoading} aria-label="Search Europe PMC">
-              <Search size={16} />
-            </button>
-          </div>
-
-          <form className="manual-source-form" onSubmit={onManualSourceSubmit}>
-            <Field label="Title" value={manualSource.title} onChange={(value) => setManualSource((draft) => ({ ...draft, title: value }))} placeholder="Paper title" />
-            <Field label="Source" value={manualSource.source} onChange={(value) => setManualSource((draft) => ({ ...draft, source: value }))} placeholder="Journal or source" />
-            <Field label="URL" value={manualSource.url} onChange={(value) => setManualSource((draft) => ({ ...draft, url: value }))} placeholder="https://..." />
-            <Field label="Tags" value={manualSource.tags} onChange={(value) => setManualSource((draft) => ({ ...draft, tags: value }))} placeholder="hypertrophy, protein" />
-            <label className="field full-width">
-              <span>Abstract or notes</span>
-              <textarea
-                className="textarea-field"
-                value={manualSource.abstract}
-                onChange={(event) => setManualSource((draft) => ({ ...draft, abstract: event.target.value }))}
-                rows={4}
-                placeholder="Paste an abstract, PubMed summary, or your notes."
-              />
-            </label>
-            <button className="primary-action full-width" type="submit">
-              <Plus size={17} />
-              Add source
-            </button>
-          </form>
-        </div>
-
-        {sources.length ? (
-          <div className="source-list">
-            {sources.slice(0, 4).map((source) => (
-              <SourceCard key={source.externalId} source={source} onRemoveSource={onRemoveSource} />
-            ))}
-          </div>
-        ) : (
-          <div className="empty-state">No sources loaded yet.</div>
-        )}
       </Section>
 
       <Section title="Ask SciFit" icon={Brain}>
@@ -1246,18 +1361,38 @@ function ProfileView({
   authEmail,
   setAuthEmail,
   session,
+  sources,
+  sourceQuery,
+  sourceLoading,
+  manualSource,
+  setSourceQuery,
+  setManualSource,
   onSaveProfile,
   onMagicLink,
-  onSignOut
+  onSignOut,
+  onImportSources,
+  onLoadStarterEvidence,
+  onManualSourceSubmit,
+  onRemoveSource
 }: {
   profile: Profile;
   updateProfile: <K extends keyof Profile>(key: K, value: Profile[K]) => void;
   authEmail: string;
   setAuthEmail: (value: string) => void;
   session: Session | null;
+  sources: ResearchSource[];
+  sourceQuery: string;
+  sourceLoading: boolean;
+  manualSource: { title: string; abstract: string; source: string; url: string; tags: string };
+  setSourceQuery: (value: string) => void;
+  setManualSource: React.Dispatch<React.SetStateAction<{ title: string; abstract: string; source: string; url: string; tags: string }>>;
   onSaveProfile: (event: FormEvent<HTMLFormElement>) => void;
   onMagicLink: (event: FormEvent<HTMLFormElement>) => void;
   onSignOut: () => void;
+  onImportSources: () => void;
+  onLoadStarterEvidence: () => void;
+  onManualSourceSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onRemoveSource: (source: ResearchSource) => void;
 }) {
   return (
     <>
@@ -1287,11 +1422,27 @@ function ProfileView({
             options={['Balanced', 'High protein', 'Plant forward', 'Low appetite']}
             onChange={(value) => updateProfile('dietStyle', value as DietStyle)}
           />
+          <SelectField
+            label="Equipment"
+            value={profile.equipment}
+            options={['Full gym', 'Home gym', 'Dumbbells', 'Bodyweight']}
+            onChange={(value) => updateProfile('equipment', value as Equipment)}
+          />
+          <SelectField
+            label="Sex"
+            value={profile.sex}
+            options={['Male', 'Female', 'Other']}
+            onChange={(value) => updateProfile('sex', value as Sex)}
+          />
           <RangeField label="Training days" value={profile.trainingDays} min={3} max={6} onChange={(value) => updateProfile('trainingDays', value)} />
           <RangeField label="Sleep" value={profile.sleepHours} min={4} max={10} step={0.1} onChange={(value) => updateProfile('sleepHours', value)} />
           <RangeField label="Soreness" value={profile.soreness} min={1} max={10} onChange={(value) => updateProfile('soreness', value)} />
+          <Field label="Age" value={String(profile.age)} onChange={(value) => updateProfile('age', Number(value) || profile.age)} inputMode="numeric" />
           <Field label="Height cm" value={String(profile.heightCm)} onChange={(value) => updateProfile('heightCm', Number(value) || profile.heightCm)} inputMode="numeric" />
           <Field label="Weight kg" value={String(profile.weightKg)} onChange={(value) => updateProfile('weightKg', Number(value) || profile.weightKg)} inputMode="decimal" />
+          <Field label="Goal details" value={profile.goalDetail} onChange={(value) => updateProfile('goalDetail', value)} />
+          <Field label="Focus areas" value={profile.focusAreas} onChange={(value) => updateProfile('focusAreas', value)} />
+          <Field label="Limitations" value={profile.limitations} onChange={(value) => updateProfile('limitations', value)} />
           <button className="primary-action full-width" type="submit">
             <Check size={17} />
             Save profile
@@ -1331,6 +1482,19 @@ function ProfileView({
           </div>
         )}
       </Section>
+
+      <ResearchLibrary
+        sources={sources}
+        sourceQuery={sourceQuery}
+        sourceLoading={sourceLoading}
+        manualSource={manualSource}
+        setSourceQuery={setSourceQuery}
+        setManualSource={setManualSource}
+        onImportSources={onImportSources}
+        onLoadStarterEvidence={onLoadStarterEvidence}
+        onManualSourceSubmit={onManualSourceSubmit}
+        onRemoveSource={onRemoveSource}
+      />
     </>
   );
 }
@@ -1364,20 +1528,18 @@ function Field({
   value,
   onChange,
   inputMode,
-  type = 'text',
-  placeholder
+  type = 'text'
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   inputMode?: React.HTMLAttributes<HTMLInputElement>['inputMode'];
   type?: string;
-  placeholder?: string;
 }) {
   return (
     <label className="field">
       <span>{label}</span>
-      <input type={type} inputMode={inputMode} value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} />
+      <input type={type} inputMode={inputMode} value={value} onChange={(event) => onChange(event.target.value)} />
     </label>
   );
 }

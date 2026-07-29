@@ -76,7 +76,7 @@ video {
   max-width: 390px;
   min-height: 100svh;
   margin: 0 auto;
-  padding: 14px 14px 90px;
+  padding: calc(14px + env(safe-area-inset-top)) 14px calc(90px + env(safe-area-inset-bottom));
   position: relative;
 }
 
@@ -972,7 +972,7 @@ p {
 .bottom-nav {
   position: fixed;
   left: 50%;
-  bottom: 14px;
+  bottom: calc(14px + env(safe-area-inset-bottom));
   z-index: 30;
   transform: translateX(-50%);
   width: min(366px, calc(100svw - 24px));

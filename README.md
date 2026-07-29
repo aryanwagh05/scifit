@@ -8,11 +8,12 @@ Mobile-first web app for science based lifting, nutrition targets, source-ground
 - Profile driven split generator
 - Nutrition target calculator
 - Workout and meal logging
-- Image and video upload previews
+- Image and video upload intake for AI review
 - Free local RAG over imported Europe PMC/PubMed sources and manually added papers
 - Clickable citations in coach answers
 - Source library that can be updated from the app
-- Supabase-ready auth, tables, RLS, private Storage, source sync, and future RAG vectors
+- Supabase-ready auth, Postgres, RLS, private Storage, source sync, pgvector chunks, and Edge Functions
+- PWA metadata and mobile safe-area support for later App Store wrapping
 - Static web deployment support through GitHub Pages
 
 ## Stack
@@ -21,6 +22,8 @@ Mobile-first web app for science based lifting, nutrition targets, source-ground
 - Framer Motion for subtle screen transitions
 - Lucide React icons
 - Supabase JS client
+- Supabase Edge Functions
+- Postgres + pgvector
 - GitHub Pages deployment
 
 ## Local Run
@@ -39,31 +42,40 @@ VITE_SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co
 VITE_SUPABASE_PUBLISHABLE_KEY=YOUR_SUPABASE_PUBLISHABLE_OR_ANON_KEY
 ```
 
-Apply the migrations in `supabase/migrations` to create profiles, workout logs, nutrition logs, AI upload metadata, private media Storage, user research sources, and future RAG vector tables.
+Apply the migrations in `supabase/migrations` to create profiles, workout logs, nutrition logs, AI upload metadata, private media Storage, user research sources, and RAG vector tables.
 
-Optional backend model endpoint:
+Deploy the Edge Functions:
 
 ```bash
-VITE_RAG_ENDPOINT=https://YOUR_PROJECT_REF.supabase.co/functions/v1/rag-chat
-VITE_RAG_API_KEY=YOUR_SUPABASE_PUBLISHABLE_OR_ANON_KEY
+supabase functions deploy ingest-source
+supabase functions deploy rag-chat
 ```
 
-The frontend works without a model key by importing abstracts from the free Europe PMC REST API, ranking the local source library, and generating constrained source-grounded guidance. A backend model can later turn the retrieved context into richer prose.
+Set server-side Supabase secrets:
+
+```bash
+supabase secrets set GEMINI_API_KEY=YOUR_FREE_AI_STUDIO_KEY
+supabase secrets set GEMINI_MODEL=gemini-2.5-flash
+supabase secrets set GEMINI_EMBED_MODEL=text-embedding-004
+```
+
+The frontend works without a model key by importing abstracts from the free Europe PMC REST API, ranking the local source library, and generating constrained source-grounded guidance. With Supabase functions deployed and `GEMINI_API_KEY` set, sources are embedded into Postgres/pgvector and the coach uses multimodal RAG for answers, image/video review, and plan creation.
 
 ## AI Integration Next
 
 The app is ready for three live model steps:
 
-- Vision model for lifting video form feedback
-- Vision model for meal image nutrition estimates
-- Server-side RAG endpoint for research-grounded answers and embeddings
+- Multimodal model for lifting video form feedback
+- Multimodal model for meal image nutrition estimates
+- Server-side RAG over Postgres vector chunks
 
 Free-first API options to add later:
 
 - Europe PMC REST API: no key required for literature search
 - NCBI API key: optional free account key for higher PubMed request limits
 - Hugging Face token: optional free-tier embeddings or vision experiments
-- Supabase Edge Function secrets for any server-side model calls
+- Gemini API key from Google AI Studio for free-tier multimodal generation and embeddings
+- Supabase Edge Function secrets for server-side model calls
 
 Keep model API keys server-side in Supabase Edge Functions. Do not expose secret keys as `VITE_` variables.
 
