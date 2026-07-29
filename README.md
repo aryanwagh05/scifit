@@ -1,6 +1,6 @@
 # SciFit
 
-Mobile-first web app for science based lifting, nutrition targets, RAG-ready coaching, and multimodal media intake.
+Mobile-first web app for science based lifting, nutrition targets, source-grounded AI coaching, and multimodal media intake.
 
 ## What Works Now
 
@@ -9,8 +9,10 @@ Mobile-first web app for science based lifting, nutrition targets, RAG-ready coa
 - Nutrition target calculator
 - Workout and meal logging
 - Image and video upload previews
-- Local AI coach fallback with source-style citations
-- Supabase-ready auth, tables, RLS, private Storage, and future RAG vectors
+- Free local RAG over imported Europe PMC/PubMed sources and manually added papers
+- Clickable citations in coach answers
+- Source library that can be updated from the app
+- Supabase-ready auth, tables, RLS, private Storage, source sync, and future RAG vectors
 - Static web deployment support through GitHub Pages
 
 ## Stack
@@ -30,30 +32,38 @@ npm run dev
 
 ## Supabase
 
-The app runs in local demo mode until these are set:
+The app runs in local mode until these are set:
 
 ```bash
 VITE_SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co
 VITE_SUPABASE_PUBLISHABLE_KEY=YOUR_SUPABASE_PUBLISHABLE_OR_ANON_KEY
+```
+
+Apply the migrations in `supabase/migrations` to create profiles, workout logs, nutrition logs, AI upload metadata, private media Storage, user research sources, and future RAG vector tables.
+
+Optional backend model endpoint:
+
+```bash
 VITE_RAG_ENDPOINT=https://YOUR_PROJECT_REF.supabase.co/functions/v1/rag-chat
 VITE_RAG_API_KEY=YOUR_SUPABASE_PUBLISHABLE_OR_ANON_KEY
 ```
 
-Apply the migration in `supabase/migrations/202607290001_scifit_mvp.sql` to create profiles, workout logs, nutrition logs, AI upload metadata, private media Storage, public research cards, and future RAG vector tables.
+The frontend works without a model key by importing abstracts from the free Europe PMC REST API, ranking the local source library, and generating constrained source-grounded guidance. A backend model can later turn the retrieved context into richer prose.
 
 ## AI Integration Next
 
-The UI is ready for three live model steps:
+The app is ready for three live model steps:
 
 - Vision model for lifting video form feedback
 - Vision model for meal image nutrition estimates
-- RAG endpoint for research grounded answers
+- Server-side RAG endpoint for research-grounded answers and embeddings
 
-Recommended API values to add later:
+Free-first API options to add later:
 
-- `OPENAI_API_KEY` for multimodal and text reasoning
-- `HF_TOKEN` only if continuing with the existing E5 embedding flow
-- Supabase Edge Function secrets for server-side model calls
+- Europe PMC REST API: no key required for literature search
+- NCBI API key: optional free account key for higher PubMed request limits
+- Hugging Face token: optional free-tier embeddings or vision experiments
+- Supabase Edge Function secrets for any server-side model calls
 
 Keep model API keys server-side in Supabase Edge Functions. Do not expose secret keys as `VITE_` variables.
 

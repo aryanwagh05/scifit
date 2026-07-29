@@ -50,16 +50,6 @@ create table if not exists public.ai_uploads (
   created_at timestamptz not null default now()
 );
 
-create table if not exists public.research_cards (
-  id uuid primary key default gen_random_uuid(),
-  title text not null,
-  source text not null,
-  takeaway text not null,
-  strength text not null default 'Moderate',
-  tags text[] not null default '{}',
-  created_at timestamptz not null default now()
-);
-
 create table if not exists public.rag_documents (
   id uuid primary key default gen_random_uuid(),
   title text not null,
@@ -86,7 +76,6 @@ alter table public.profiles enable row level security;
 alter table public.workout_sets enable row level security;
 alter table public.nutrition_logs enable row level security;
 alter table public.ai_uploads enable row level security;
-alter table public.research_cards enable row level security;
 alter table public.rag_documents enable row level security;
 alter table public.rag_chunks enable row level security;
 
@@ -132,22 +121,11 @@ using ((select auth.uid()) = user_id)
 with check ((select auth.uid()) = user_id);
 create policy "Users can delete own ai uploads" on public.ai_uploads for delete to authenticated using ((select auth.uid()) = user_id);
 
-drop policy if exists "Research cards are readable" on public.research_cards;
-create policy "Research cards are readable" on public.research_cards for select to anon, authenticated using (true);
-
 grant usage on schema public to anon, authenticated;
 grant select, insert, update, delete on public.profiles to authenticated;
 grant select, insert, update, delete on public.workout_sets to authenticated;
 grant select, insert, update, delete on public.nutrition_logs to authenticated;
 grant select, insert, update, delete on public.ai_uploads to authenticated;
-grant select on public.research_cards to anon, authenticated;
-
-insert into public.research_cards (title, source, takeaway, strength, tags)
-values
-  ('Hypertrophy Volume', 'Schoenfeld et al., resistance training volume meta-analysis', 'Most lifters progress well with roughly 10 to 20 hard sets per muscle each week.', 'Strong', array['training', 'hypertrophy']),
-  ('Protein Target', 'Morton et al., protein supplementation meta-analysis', 'A practical daily range is about 1.6 to 2.2 g protein per kg bodyweight.', 'Strong', array['nutrition', 'protein']),
-  ('Autoregulation', 'RPE and repetitions-in-reserve coaching literature', 'Keep most working sets near 1 to 3 reps in reserve, then adjust load by recovery.', 'Moderate', array['recovery', 'autoregulation'])
-on conflict do nothing;
 
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values (

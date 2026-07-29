@@ -50,10 +50,12 @@ export type UploadAsset = {
 export type Citation = {
   title: string;
   source: string;
+  url?: string;
+  year?: string;
 };
 
 export const defaultProfile: Profile = {
-  name: 'Aryan',
+  name: 'Athlete',
   goal: 'Lean bulk',
   experience: 'Intermediate',
   dietStyle: 'High protein',
@@ -64,74 +66,8 @@ export const defaultProfile: Profile = {
   soreness: 3
 };
 
-export const starterWorkouts: WorkoutSet[] = [
-  {
-    id: 'seed-1',
-    exercise: 'Back squat',
-    muscle: 'Quads',
-    sets: 4,
-    reps: 6,
-    load: 185,
-    rpe: 8,
-    createdAt: new Date().toISOString()
-  },
-  {
-    id: 'seed-2',
-    exercise: 'Bench press',
-    muscle: 'Chest',
-    sets: 3,
-    reps: 8,
-    load: 145,
-    rpe: 7.5,
-    createdAt: new Date().toISOString()
-  },
-  {
-    id: 'seed-3',
-    exercise: 'Romanian deadlift',
-    muscle: 'Hamstrings',
-    sets: 3,
-    reps: 9,
-    load: 165,
-    rpe: 7,
-    createdAt: new Date().toISOString()
-  }
-];
-
-export const starterMeals: MealLog[] = [
-  {
-    id: 'meal-1',
-    meal: 'Greek yogurt bowl',
-    calories: 430,
-    protein: 42,
-    carbs: 48,
-    fat: 9,
-    createdAt: new Date().toISOString()
-  }
-];
-
-export const researchCards = [
-  {
-    title: 'Hypertrophy Volume',
-    source: 'Schoenfeld et al., resistance training volume meta-analysis',
-    takeaway: 'Most lifters progress well with roughly 10 to 20 hard sets per muscle each week.',
-    strength: 'Strong',
-    tag: 'Training'
-  },
-  {
-    title: 'Protein Target',
-    source: 'Morton et al., protein supplementation meta-analysis',
-    takeaway: 'A practical daily range is about 1.6 to 2.2 g protein per kg bodyweight.',
-    strength: 'Strong',
-    tag: 'Nutrition'
-  },
-  {
-    title: 'Autoregulation',
-    source: 'RPE and repetitions-in-reserve coaching literature',
-    takeaway: 'Keep most working sets near 1 to 3 reps in reserve, then adjust load by recovery.',
-    strength: 'Moderate',
-    tag: 'Recovery'
-  }
-];
+export const starterWorkouts: WorkoutSet[] = [];
+export const starterMeals: MealLog[] = [];
 
 export function clampNumber(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
@@ -230,43 +166,4 @@ export function generateSplit(profile: Profile) {
     ...item,
     volume: Math.max(8, volumeBias + (index % 2 === 0 ? 1 : -1))
   }));
-}
-
-export function synthesizeCoachAnswer(prompt: string, profile: Profile, uploads: UploadAsset[]) {
-  const lower = prompt.toLowerCase();
-  const targets = getNutritionTargets(profile);
-  const latestUpload = uploads[0];
-  const hasVideo = uploads.some((upload) => upload.kind === 'video');
-  const hasMealImage = uploads.some((upload) => upload.kind === 'image');
-
-  if (lower.includes('meal') || lower.includes('protein') || lower.includes('nutrition')) {
-    return {
-      answer: `For ${profile.goal.toLowerCase()}, start around ${targets.calories} kcal with ${targets.protein} g protein. Keep fats near ${targets.fat} g and use the remaining calories for carbs so training performance stays high. If bodyweight does not trend in the intended direction for 2 weeks, adjust by 150 to 200 kcal.`,
-      citations: [researchCards[1]]
-    };
-  }
-
-  if (lower.includes('form') || lower.includes('video') || lower.includes('squat') || hasVideo) {
-    return {
-      answer: latestUpload
-        ? `I logged ${latestUpload.name} as a ${latestUpload.kind} input. The live multimodal model is not connected yet, so the safe default cue is to review depth, bracing, and bar path consistency. Once a vision model is wired, this panel should return rep counts, joint-angle flags, and confidence with the clip attached.`
-        : 'Attach a set video before asking for form feedback. The app is ready for video intake and will route clips to the multimodal analysis step once the AI API is connected.',
-      citations: [researchCards[2]]
-    };
-  }
-
-  if (lower.includes('split') || lower.includes('program') || lower.includes('plan')) {
-    const split = generateSplit(profile)
-      .map((day) => `${day.day}: ${day.focus}`)
-      .join('; ');
-    return {
-      answer: `Your current ${profile.trainingDays}-day split should bias toward ${split}. Progress compounds when all target reps land below RPE 9, and deload if soreness plus performance both worsen for more than a week.`,
-      citations: [researchCards[0], researchCards[2]]
-    };
-  }
-
-  return {
-    answer: `Based on your ${profile.experience.toLowerCase()} profile and ${profile.goal.toLowerCase()} goal, the next useful decision is to keep weekly hard sets in a recoverable range, hit ${targets.protein} g protein, and use uploads as evidence when asking about form or meals.${hasMealImage ? ' Your latest meal image is queued for the future nutrition vision pass.' : ''}`,
-    citations: [researchCards[0], researchCards[1]]
-  };
 }

@@ -1,6 +1,6 @@
 # Supabase Setup
 
-Apply `supabase/migrations/202607290001_scifit_mvp.sql` to a new Supabase project.
+Apply all SQL files in `supabase/migrations` to a new Supabase project in filename order.
 
 The migration creates:
 
@@ -8,7 +8,7 @@ The migration creates:
 - Workout and nutrition logs with row level security
 - Private `media` Storage bucket for image and video uploads
 - AI upload metadata table
-- Public research cards
+- Per-user research source library for imported PubMed/Europe PMC papers and manual sources
 - Future RAG document and vector chunk tables
 
 The frontend reads:
@@ -18,4 +18,4 @@ The frontend reads:
 - Optional `VITE_RAG_ENDPOINT`
 - Optional `VITE_RAG_API_KEY`
 
-The app runs without these values in local demo mode.
+The app runs without these values in local mode. Without Supabase, source imports, logs, and media previews persist in browser storage only.
