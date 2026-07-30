@@ -155,7 +155,7 @@ function fallbackAnswer(message: string, profile: ProfileInput, matches: MatchRo
   return {
     answer: matches.length
       ? `For ${target}, start with a ${profile.trainingDays || 4}-day plan using ${profile.equipment || 'available'} equipment, adjust volume to recovery, and anchor nutrition to bodyweight trend. Retrieved evidence: ${contextLine}.${mediaLine}`
-      : `I need embedded research sources before giving a source-grounded answer. Use the Research Library to sync starter evidence, then ask again.${mediaLine}`,
+      : `I do not have enough matching evidence in the embedded corpus for that question yet. Add more detail about the goal, lift, meal, or training phase and I will retrieve the closest source-backed guidance.${mediaLine}`,
     citations,
     plan: null
   };

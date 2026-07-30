@@ -9,9 +9,9 @@ Mobile-first web app for science based lifting, nutrition targets, source-ground
 - Nutrition target calculator
 - Workout and meal logging
 - Image and video upload intake for AI review
-- Free local RAG over imported Europe PMC/PubMed sources and manually added papers
+- Seeded PubMed-backed RAG corpus for local source-grounded coaching
 - Clickable citations in coach answers
-- Source library that can be updated from the app
+- Developer-only source tooling behind `VITE_SHOW_RESEARCH_ADMIN`
 - Supabase-ready auth, Postgres, RLS, private Storage, source sync, pgvector chunks, and Edge Functions
 - PWA metadata and mobile safe-area support for later App Store wrapping
 - Static web deployment support through GitHub Pages
@@ -49,6 +49,7 @@ Deploy the Edge Functions:
 ```bash
 supabase functions deploy ingest-source
 supabase functions deploy rag-chat
+supabase functions deploy seed-research --no-verify-jwt
 ```
 
 Set server-side Supabase secrets:
@@ -56,10 +57,20 @@ Set server-side Supabase secrets:
 ```bash
 supabase secrets set GEMINI_API_KEY=YOUR_FREE_AI_STUDIO_KEY
 supabase secrets set GEMINI_MODEL=gemini-2.5-flash
-supabase secrets set GEMINI_EMBED_MODEL=text-embedding-004
+supabase secrets set GEMINI_EMBED_MODEL=gemini-embedding-2
+supabase secrets set SCIFIT_ADMIN_SEED_SECRET=CHANGE_ME_LONG_RANDOM_VALUE
 ```
 
-The frontend works without a model key by importing abstracts from the free Europe PMC REST API, ranking the local source library, and generating constrained source-grounded guidance. With Supabase functions deployed and `GEMINI_API_KEY` set, sources are embedded into Postgres/pgvector and the coach uses multimodal RAG for answers, image/video review, and plan creation.
+Seed the global research corpus after the migration and functions are deployed:
+
+```bash
+curl -X POST "https://YOUR_PROJECT_REF.supabase.co/functions/v1/seed-research" \
+  -H "x-scifit-admin-secret: CHANGE_ME_LONG_RANDOM_VALUE"
+```
+
+The public app does not ask users to add research papers. Users enter their stats, goals, training logs, meals, and image/video uploads. SciFit retrieves from the seeded corpus, cites papers in coach answers, and can optionally use developer-added sources through the hidden research admin UI in local/dev builds.
+
+The frontend works without a model key by ranking the built-in PubMed corpus in the browser and generating constrained source-grounded guidance. With Supabase functions deployed and `GEMINI_API_KEY` set, sources are embedded into Postgres/pgvector and the coach uses multimodal RAG for answers, image/video review, and plan creation.
 
 ## AI Integration Next
 
@@ -71,7 +82,7 @@ The app is ready for three live model steps:
 
 Free-first API options to add later:
 
-- Europe PMC REST API: no key required for literature search
+- Europe PMC REST API: no key required for developer-side literature search
 - NCBI API key: optional free account key for higher PubMed request limits
 - Hugging Face token: optional free-tier embeddings or vision experiments
 - Gemini API key from Google AI Studio for free-tier multimodal generation and embeddings

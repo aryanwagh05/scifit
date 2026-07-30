@@ -3,5 +3,13 @@ import react from '@vitejs/plugin-react';
 
 export default defineConfig({
   base: './',
-  plugins: [react()]
+  plugins: [react()],
+  optimizeDeps: {
+    entries: ['index.html']
+  },
+  server: {
+    watch: {
+      ignored: ['**/chrome-cdp-profile*/**', '**/chrome-qa-profile*/**']
+    }
+  }
 });

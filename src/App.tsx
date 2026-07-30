@@ -1,6 +1,7 @@
 import type { Session } from '@supabase/supabase-js';
 import type { ChangeEvent, FormEvent } from 'react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import * as THREE from 'three';
 import { AnimatePresence, motion } from 'framer-motion';
 import type { LucideIcon } from 'lucide-react';
 import {
@@ -46,6 +47,7 @@ import {
   starterEvidenceQueries
 } from './lib/research';
 import type { ResearchSource } from './lib/research';
+import { coreResearchSources } from './lib/coreSources';
 import { isSupabaseConfigured, supabase, uploadMediaFile } from './lib/supabase';
 
 type Tab = 'today' | 'plan' | 'log' | 'coach' | 'profile';
@@ -103,6 +105,9 @@ const quickPrompts = [
 ];
 
 const defaultSourceQuery = starterEvidenceQueries[0].query;
+const showResearchAdmin = import.meta.env.DEV || import.meta.env.VITE_SHOW_RESEARCH_ADMIN === 'true';
+const seedCoachMessage =
+  'Ask about training, nutrition, fat loss, or upload a lifting clip or meal photo. SciFit grounds answers in its research corpus and adds citations when evidence is retrieved.';
 
 function isTab(value: string): value is Tab {
   return tabs.some((tab) => tab.id === value);
@@ -250,8 +255,7 @@ function App() {
     {
       id: 'assistant-seed',
       role: 'assistant',
-      content:
-        'Import PubMed/Europe PMC sources or add your own paper, then ask SciFit. Answers will cite the active source library.',
+      content: seedCoachMessage,
       citations: []
     }
   ]);
@@ -277,6 +281,7 @@ function App() {
   const readiness = useMemo(() => getReadiness(athlete, workouts), [athlete, workouts]);
   const weeklyVolume = useMemo(() => getWeeklyVolume(workouts), [workouts]);
   const topLift = useMemo(() => getTopLift(workouts), [workouts]);
+  const evidenceSources = useMemo(() => mergeSources(coreResearchSources, sources), [sources]);
   const proteinLogged = meals.reduce((sum, meal) => sum + meal.protein, 0);
   const caloriesLogged = meals.reduce((sum, meal) => sum + meal.calories, 0);
 
@@ -299,6 +304,16 @@ function App() {
 
     return () => data.subscription.unsubscribe();
   }, []);
+
+  useEffect(() => {
+    setMessages((current) =>
+      current.map((message) =>
+        message.id === 'assistant-seed' || message.content.startsWith('Import PubMed/Europe PMC sources')
+          ? { ...message, content: seedCoachMessage }
+          : message
+      )
+    );
+  }, [setMessages]);
 
   useEffect(() => {
     if (!supabase || !session) {
@@ -654,7 +669,7 @@ function App() {
           }
         ]);
       } else {
-        const result = answerWithRag(prompt, athlete, uploads, sources);
+        const result = answerWithRag(prompt, athlete, uploads, evidenceSources);
         setMessages((current) => [
           ...current,
           {
@@ -666,7 +681,7 @@ function App() {
         ]);
       }
     } catch (error) {
-      const result = answerWithRag(prompt, athlete, uploads, sources);
+      const result = answerWithRag(prompt, athlete, uploads, evidenceSources);
       setMessages((current) => [
         ...current,
         {
@@ -718,7 +733,7 @@ function App() {
                 caloriesLogged={caloriesLogged}
                 uploads={uploads}
                 workouts={workouts}
-                sourceCount={sources.length}
+                sourceCount={evidenceSources.length}
                 setActiveTab={setActiveTab}
               />
             ) : null}
@@ -728,7 +743,7 @@ function App() {
                 profile={athlete}
                 split={split}
                 nutrition={nutrition}
-                sources={sources}
+                sources={evidenceSources}
                 updateProfile={updateProfile}
                 onSaveProfile={handleSaveProfile}
               />
@@ -862,6 +877,130 @@ function MetricCard({ label, value, detail }: { label: string; value: string; de
   );
 }
 
+function HeroScene({ readiness }: { readiness: number }) {
+  const mountRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const mount = mountRef.current;
+    if (!mount) {
+      return;
+    }
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 100);
+    camera.position.set(0, 0.15, 5.4);
+
+    const renderer = new THREE.WebGLRenderer({
+      antialias: true,
+      alpha: true,
+      preserveDrawingBuffer: true
+    });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    mount.appendChild(renderer.domElement);
+
+    const group = new THREE.Group();
+    scene.add(group);
+
+    const olive = new THREE.MeshStandardMaterial({
+      color: new THREE.Color('#8fa665'),
+      roughness: 0.48,
+      metalness: 0.24
+    });
+    const cream = new THREE.MeshStandardMaterial({
+      color: new THREE.Color('#f2e7c9'),
+      roughness: 0.54,
+      metalness: 0.12
+    });
+    const steel = new THREE.MeshStandardMaterial({
+      color: new THREE.Color('#86a2a1'),
+      roughness: 0.34,
+      metalness: 0.3
+    });
+
+    const orbit = new THREE.Mesh(new THREE.TorusGeometry(1.28, 0.018, 12, 120), olive);
+    const orbitTwo = new THREE.Mesh(new THREE.TorusGeometry(1.02, 0.014, 12, 120), steel);
+    orbit.rotation.x = Math.PI * 0.62;
+    orbitTwo.rotation.x = Math.PI * 0.38;
+    orbitTwo.rotation.y = Math.PI * 0.18;
+    group.add(orbit, orbitTwo);
+
+    const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 2.35, 24), cream);
+    bar.rotation.z = Math.PI / 2;
+    group.add(bar);
+
+    const plateGeometry = new THREE.CylinderGeometry(0.18, 0.18, 0.16, 32);
+    [-1.15, -0.94, 0.94, 1.15].forEach((x, index) => {
+      const plate = new THREE.Mesh(plateGeometry, index % 2 ? steel : olive);
+      plate.rotation.z = Math.PI / 2;
+      plate.position.x = x;
+      group.add(plate);
+    });
+
+    const nodeGeometry = new THREE.IcosahedronGeometry(0.09, 1);
+    const nodePositions = [
+      [-0.62, 0.82, 0.34],
+      [0.72, -0.62, 0.48],
+      [0.22, 1.08, -0.22],
+      [-0.94, -0.18, -0.38],
+      [1.04, 0.24, -0.28]
+    ];
+    nodePositions.forEach((position, index) => {
+      const node = new THREE.Mesh(nodeGeometry, index % 2 ? cream : olive);
+      node.position.set(position[0], position[1], position[2]);
+      group.add(node);
+    });
+
+    const light = new THREE.DirectionalLight('#fff8e6', 2.4);
+    light.position.set(2.2, 3, 4);
+    scene.add(light);
+    scene.add(new THREE.AmbientLight('#8fa665', 0.9));
+
+    const resize = () => {
+      const width = Math.max(1, mount.clientWidth);
+      const height = Math.max(1, mount.clientHeight);
+      renderer.setSize(width, height, false);
+      camera.aspect = width / height;
+      camera.updateProjectionMatrix();
+    };
+
+    const observer = new ResizeObserver(resize);
+    observer.observe(mount);
+    resize();
+
+    let frame = 0;
+    let animationId = 0;
+    const readinessTilt = (readiness - 70) / 500;
+    const animate = () => {
+      frame += 0.01;
+      group.rotation.y = Math.sin(frame * 0.7) * 0.2 + readinessTilt;
+      group.rotation.x = Math.sin(frame * 0.45) * 0.08;
+      orbit.rotation.z += 0.006;
+      orbitTwo.rotation.z -= 0.004;
+      renderer.render(scene, camera);
+      animationId = window.requestAnimationFrame(animate);
+    };
+    animate();
+
+    return () => {
+      window.cancelAnimationFrame(animationId);
+      observer.disconnect();
+      mount.removeChild(renderer.domElement);
+      plateGeometry.dispose();
+      nodeGeometry.dispose();
+      orbit.geometry.dispose();
+      orbitTwo.geometry.dispose();
+      bar.geometry.dispose();
+      olive.dispose();
+      cream.dispose();
+      steel.dispose();
+      renderer.dispose();
+    };
+  }, [readiness]);
+
+  return <div className="hero-scene" ref={mountRef} aria-hidden="true" />;
+}
+
 function TodayView({
   profile,
   readiness,
@@ -893,7 +1032,8 @@ function TodayView({
 
   return (
     <>
-      <section className="hero-panel">
+      <section className="hero-panel immersive-hero">
+        <HeroScene readiness={readiness} />
         <div className="hero-copy">
           <span className="eyebrow">Today</span>
           <h1>{profile.goal}</h1>
@@ -1071,7 +1211,7 @@ function PlanView({
             ))}
           </div>
         ) : (
-          <div className="empty-state">Import PubMed/Europe PMC sources in the AI tab.</div>
+          <div className="empty-state">Evidence sync is preparing.</div>
         )}
       </Section>
     </>
@@ -1483,18 +1623,20 @@ function ProfileView({
         )}
       </Section>
 
-      <ResearchLibrary
-        sources={sources}
-        sourceQuery={sourceQuery}
-        sourceLoading={sourceLoading}
-        manualSource={manualSource}
-        setSourceQuery={setSourceQuery}
-        setManualSource={setManualSource}
-        onImportSources={onImportSources}
-        onLoadStarterEvidence={onLoadStarterEvidence}
-        onManualSourceSubmit={onManualSourceSubmit}
-        onRemoveSource={onRemoveSource}
-      />
+      {showResearchAdmin ? (
+        <ResearchLibrary
+          sources={sources}
+          sourceQuery={sourceQuery}
+          sourceLoading={sourceLoading}
+          manualSource={manualSource}
+          setSourceQuery={setSourceQuery}
+          setManualSource={setManualSource}
+          onImportSources={onImportSources}
+          onLoadStarterEvidence={onLoadStarterEvidence}
+          onManualSourceSubmit={onManualSourceSubmit}
+          onRemoveSource={onRemoveSource}
+        />
+      ) : null}
     </>
   );
 }

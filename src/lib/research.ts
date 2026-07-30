@@ -298,7 +298,7 @@ export function answerWithRag(question: string, profile: Profile, uploads: Uploa
   if (!sources.length) {
     return {
       answer:
-        'No research sources are loaded yet. Import from Europe PMC/PubMed or add a source manually, then ask again so the answer can be grounded in your library.',
+        'I need the research corpus to finish syncing before I can give a source-grounded answer. Your profile and uploads are saved for the next run.',
       citations: [],
       confidence: 0
     };
@@ -307,7 +307,7 @@ export function answerWithRag(question: string, profile: Profile, uploads: Uploa
   if (!hits.length) {
     return {
       answer:
-        'I could not find a strong match in the current source library. Add more sources for this exact topic, then rerun the question.',
+        'I could not find a strong evidence match for that exact question yet. Ask with more detail about the goal, exercise, meal, or phase so I can retrieve the closest source-backed guidance.',
       citations: [],
       confidence: 0.12
     };

@@ -218,7 +218,48 @@ video {
   overflow: hidden;
 }
 
+.immersive-hero {
+  min-height: 312px;
+  position: relative;
+  grid-template-rows: 1fr auto;
+  padding: 18px;
+  background:
+    linear-gradient(180deg, rgba(13, 18, 12, 0.05), rgba(13, 18, 12, 0.78)),
+    #10160e;
+  isolation: isolate;
+}
+
+.immersive-hero::after {
+  content: "";
+  position: absolute;
+  inset: auto 14px 13px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(242, 231, 201, 0.34), transparent);
+  z-index: 1;
+}
+
+.hero-scene {
+  position: absolute;
+  top: -8px;
+  right: -84px;
+  width: 320px;
+  height: 230px;
+  z-index: 0;
+  overflow: hidden;
+  opacity: 0.86;
+}
+
+.hero-scene canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
 .hero-copy {
+  position: relative;
+  z-index: 2;
+  align-self: end;
+  max-width: 260px;
   min-width: 0;
 }
 
@@ -273,6 +314,8 @@ p {
   display: grid;
   place-items: center;
   position: relative;
+  z-index: 2;
+  justify-self: end;
   flex: 0 0 auto;
 }
 

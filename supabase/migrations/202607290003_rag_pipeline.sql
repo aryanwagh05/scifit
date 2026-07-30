@@ -27,6 +27,10 @@ create unique index if not exists rag_documents_user_external_idx
 create index if not exists rag_documents_user_created_idx
   on public.rag_documents (user_id, created_at desc);
 
+create index if not exists rag_documents_global_external_idx
+  on public.rag_documents (external_id)
+  where user_id is null and external_id is not null;
+
 create index if not exists rag_chunks_user_document_idx
   on public.rag_chunks (user_id, document_id);
 
