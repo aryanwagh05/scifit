@@ -258,7 +258,7 @@ Deno.serve(async (req) => {
       citations: citations.length ? citations : matches.slice(0, 5).map(citationFromMatch),
       plan: parsed.plan ?? null,
       match_count: matches.length,
-      model: Deno.env.get('GEMINI_MODEL') || 'gemini-2.5-flash'
+      model: Deno.env.get('GEMINI_MODEL') || 'gemini-3.6-flash'
     });
   } catch (error) {
     return jsonResponse({ error: error instanceof Error ? error.message : 'RAG chat failed' }, 500);

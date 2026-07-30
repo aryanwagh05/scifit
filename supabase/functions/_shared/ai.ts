@@ -128,7 +128,8 @@ export async function generateWithGemini({
     return null;
   }
 
-  const model = Deno.env.get('GEMINI_MODEL') || 'gemini-2.5-flash';
+  const configuredModel = Deno.env.get('GEMINI_MODEL') || 'gemini-3.6-flash';
+  const models = Array.from(new Set([configuredModel, 'gemini-3.6-flash', 'gemini-3.5-flash']));
   const parts: Array<Record<string, unknown>> = [{ text: prompt }];
   if (media) {
     parts.push({
@@ -139,31 +140,42 @@ export async function generateWithGemini({
     });
   }
 
-  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      systemInstruction: {
-        parts: [{ text: system }]
-      },
-      contents: [
-        {
-          role: 'user',
-          parts
-        }
-      ],
-      generationConfig: {
-        temperature: 0.35,
-        ...(json ? { responseMimeType: 'application/json' } : {})
+  const body = JSON.stringify({
+    systemInstruction: {
+      parts: [{ text: system }]
+    },
+    contents: [
+      {
+        role: 'user',
+        parts
       }
-    })
+    ],
+    generationConfig: {
+      temperature: 0.35,
+      ...(json ? { responseMimeType: 'application/json' } : {})
+    }
   });
 
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Gemini request failed: ${response.status} ${text.slice(0, 160)}`);
+  let lastError = '';
+  for (const model of models) {
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      lastError = `Gemini request failed for ${model}: ${response.status} ${text.slice(0, 160)}`;
+      if (response.status === 404) {
+        continue;
+      }
+      throw new Error(lastError);
+    }
+
+    const data = await response.json();
+    return data?.candidates?.[0]?.content?.parts?.map((part: { text?: string }) => part.text ?? '').join('\n').trim() ?? null;
   }
 
-  const data = await response.json();
-  return data?.candidates?.[0]?.content?.parts?.map((part: { text?: string }) => part.text ?? '').join('\n').trim() ?? null;
+  throw new Error(lastError || 'Gemini request failed for every configured model');
 }

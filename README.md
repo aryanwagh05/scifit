@@ -56,7 +56,7 @@ Set server-side Supabase secrets:
 
 ```bash
 supabase secrets set GEMINI_API_KEY=YOUR_FREE_AI_STUDIO_KEY
-supabase secrets set GEMINI_MODEL=gemini-2.5-flash
+supabase secrets set GEMINI_MODEL=gemini-3.6-flash
 supabase secrets set GEMINI_EMBED_MODEL=gemini-embedding-2
 supabase secrets set SCIFIT_ADMIN_SEED_SECRET=CHANGE_ME_LONG_RANDOM_VALUE
 ```
