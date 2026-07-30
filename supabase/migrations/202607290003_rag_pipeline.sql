@@ -1,3 +1,5 @@
+set search_path = public, extensions;
+
 alter table public.profiles
   add column if not exists goal_detail text not null default '',
   add column if not exists equipment text not null default 'Full gym',
@@ -28,6 +30,10 @@ create index if not exists rag_documents_user_created_idx
   on public.rag_documents (user_id, created_at desc);
 
 create index if not exists rag_documents_global_external_idx
+  on public.rag_documents (external_id)
+  where user_id is null and external_id is not null;
+
+create unique index if not exists rag_documents_global_external_unique_idx
   on public.rag_documents (external_id)
   where user_id is null and external_id is not null;
 

@@ -1,5 +1,7 @@
 create extension if not exists vector with schema extensions;
 
+set search_path = public, extensions;
+
 create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   name text not null default 'Athlete',
