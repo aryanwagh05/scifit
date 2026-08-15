@@ -57,6 +57,10 @@ textarea {
   font: inherit;
 }
 
+a {
+  text-decoration: none;
+}
+
 button {
   border: 0;
 }
@@ -497,6 +501,12 @@ p {
 
 .action-row div {
   min-width: 0;
+}
+
+.action-row p {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.78rem;
 }
 
 .action-row strong,
