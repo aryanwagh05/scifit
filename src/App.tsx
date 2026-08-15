@@ -1637,6 +1637,18 @@ function ProfileView({
           onRemoveSource={onRemoveSource}
         />
       ) : null}
+
+      <Section title="Privacy" icon={ShieldCheck}>
+        <div className="action-row">
+          <div>
+            <strong>Privacy Policy</strong>
+            <p>Learn how SciFit handles account data, fitness information, and AI uploads.</p>
+          </div>
+          <a className="text-button" href="./privacy.html">
+            View
+          </a>
+        </div>
+      </Section>
     </>
   );
 }
